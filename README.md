@@ -1,2 +1,2 @@
-# atlas
+# Immune Atlas
 Cytometry Atlas Demo
