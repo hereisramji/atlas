@@ -572,10 +572,10 @@ elif section == "I am looking at data":
             st.write("""
             This t-SNE plot visualizes how different markers cluster based on their expression patterns across patient samples.
             Markers that appear close together in this plot tend to have similar expression patterns and may be functionally related.
-                """)
+            """)
                 
-                # Add a note about the visualization
-                st.info("Note: This is a simulated visualization for demonstration purposes. In the full product, this would be based on actual marker expression data across all samples in the database.")
+            # Add a note about the visualization
+            st.info("Note: This is a simulated visualization for demonstration purposes. In the full product, this would be based on actual marker expression data across all samples in the database.")
 
     # Additional guidance
     st.write("### How to Use This Tool")
