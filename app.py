@@ -394,7 +394,7 @@ elif section == "I am looking at data":
         - Monitor {selected_marker} expression at baseline and day 14-28 to identify potential responders early
         - Explore combination therapies that might enhance {selected_marker} expression in non-responders
         """)
-    elif responder_trend > 0 and nonresponder_trend > 0 but responder_trend > nonresponder_trend:
+    elif responder_trend > 0 and nonresponder_trend > 0 and responder_trend > nonresponder_trend:
         st.write(f"""
         - {selected_marker} shows promise as a pharmacodynamic marker, but additional markers may be needed for accurate response prediction
         - Consider a multi-marker panel including {selected_marker} for patient stratification
