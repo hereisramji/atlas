@@ -33,10 +33,8 @@ if section == "I am depositing data":
         - **Data Contribution**: Provide datasets (e.g., 207 DLBCL patients treated with Axi-Cel, CD27+CD28+CD8+ T cells).
         - **Payment Model**:
           - Revenue Share: Percentage of subscription revenue (e.g., $10,000/year for Atlas access) based on usage proportion, capped at 20\% amongst contributors.
-          - Licensing Bonus: \$5,000 - \$50,000 for high-impact datasets (e.g., cited in drug approvals).
         - **Deidentification Support**: Tools to ensure HIPAA/GDPR compliance.
         - **Attribution**: Optional credit in publications (e.g., "Data provided by XYZ Pharma").
-        - **Example**: XYZ Pharma earns \$100 from 100 queries (\$1 each) \+ \$500 from 5\% of a \$10,000 subscription, totaling \$600 plus potential bonuses.
         """)
 
     with tab2:
