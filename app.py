@@ -4,23 +4,10 @@ import pandas as pd
 # Set page configuration
 st.set_page_config(page_title="Immune Atlas Demo", layout="wide")
 
-# Authentication
-if not st.experimental_user.is_logged_in:
-    st.title("Welcome to the Immune Atlas")
-    st.write("""
-    Please log in to access the Immune Atlas data platform.
-    """)
-    if st.button("Log in with Google"):
-        st.login("google")  # Specify the provider explicitly
-    st.stop()  # This prevents the rest of the app from loading before authentication
-
-
 # Title and Introduction
 st.title("Welcome to the Immune Atlas")
 st.write(f"""
 The Immune Atlas aggregates and analyzes cytometry datasets to accelerate drug development by identifying optimal cancer types and patient subsets. Explore how you can contribute data or leverage our insights below.
-
-You are logged in as: {st.experimental_user.email}
 """)
 
 # Sidebar for navigation
