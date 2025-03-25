@@ -673,6 +673,3 @@ elif section == "I am looking at data":
 # Footer
 st.write("---")
 st.write("Contact us to learn more or start contributing: info@teiko.bio")
-Last edited just now
-
-
