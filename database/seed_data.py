@@ -312,6 +312,7 @@ def seed_database():
         print("Seeding database...")
         seed_cohorts(session)
         seed_markers(session)
+        seed_timepoints(session)
         seed_marker_data(session)
         seed_cell_type_data(session)
         print("Database seeding completed successfully!")
