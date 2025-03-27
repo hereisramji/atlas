@@ -37,6 +37,30 @@ app_mode = st.sidebar.selectbox(
     ["Cohort Explorer", "Cell Population Analysis", "Responder Analysis"]
 )
 
+# Add near the top of your app
+def check_database():
+    try:
+        engine = db.engine
+        with engine.connect() as conn:
+            cohort_count = conn.execute("SELECT COUNT(*) FROM cohorts").scalar()
+            patient_count = conn.execute("SELECT COUNT(*) FROM patients").scalar()
+            specimen_count = conn.execute("SELECT COUNT(*) FROM specimens").scalar()
+            cell_count = conn.execute("SELECT COUNT(*) FROM cell_populations").scalar()
+            
+        st.sidebar.write("Database Status:")
+        st.sidebar.write(f"- Cohorts: {cohort_count}")
+        st.sidebar.write(f"- Patients: {patient_count}")
+        st.sidebar.write(f"- Specimens: {specimen_count}")
+        st.sidebar.write(f"- Cell populations: {cell_count}")
+        
+        if cohort_count == 0:
+            st.sidebar.error("No cohorts found. Database may not be initialized.")
+    except Exception as e:
+        st.sidebar.error(f"Database error: {str(e)}")
+
+# Call this after initializing the db
+check_database()
+
 # Cohort Explorer
 if app_mode == "Cohort Explorer":
     st.header("Cohort Explorer")
