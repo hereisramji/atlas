@@ -8,6 +8,8 @@ import seaborn as sns
 from pathlib import Path
 import os
 from sqlalchemy import text
+from sqlalchemy import func, desc
+from models import Patient, Specimen
 
 # Import custom modules
 import immune_atlas_utils as utils
@@ -29,13 +31,32 @@ def check_database():
             cohort_count = conn.execute(text("SELECT COUNT(*) FROM cohorts")).scalar()
             patient_count = conn.execute(text("SELECT COUNT(*) FROM patients")).scalar()
             specimen_count = conn.execute(text("SELECT COUNT(*) FROM specimens")).scalar()
-            cell_count = conn.execute(text("SELECT COUNT(*) FROM cell_populations")).scalar()
+            cell_pop_count = conn.execute(text("SELECT COUNT(*) FROM cell_populations")).scalar()
+            cell_count = conn.execute(text("SELECT COUNT(*) FROM cells")).scalar()
+            marker_count = conn.execute(text("SELECT COUNT(*) FROM cell_markers")).scalar()
+            
+            # Get some specimen statistics
+            specimen_stats = conn.execute(text("""
+                SELECT p.patient_id, COUNT(s.specimen_id) as specimen_count
+                FROM patients p 
+                LEFT JOIN specimens s ON p.patient_id = s.patient_id
+                GROUP BY p.patient_id
+                ORDER BY specimen_count DESC
+                LIMIT 5
+            """)).fetchall()
             
         st.sidebar.write("Database Status:")
         st.sidebar.write(f"- Cohorts: {cohort_count}")
         st.sidebar.write(f"- Patients: {patient_count}")
         st.sidebar.write(f"- Specimens: {specimen_count}")
-        st.sidebar.write(f"- Cell populations: {cell_count}")
+        st.sidebar.write(f"- Cell populations: {cell_pop_count}")
+        st.sidebar.write(f"- Individual cells: {cell_count}")
+        st.sidebar.write(f"- Cell markers: {marker_count}")
+        
+        if specimen_stats:
+            st.sidebar.write("Patients with most specimens:")
+            for patient_id, count in specimen_stats:
+                st.sidebar.write(f"- Patient {patient_id}: {count} specimens")
         
         if cohort_count == 0:
             st.sidebar.error("No cohorts found. Database may not be initialized.")
@@ -77,7 +98,7 @@ else:
 st.sidebar.title("Navigation")
 app_mode = st.sidebar.selectbox(
     "Choose the app mode",
-    ["Cohort Explorer", "Cell Population Analysis", "Responder Analysis"]
+    ["Cohort Explorer", "Cell Population Analysis", "Individual Cell Analysis", "Responder Analysis"]
 )
 
 # Cohort Explorer
@@ -157,74 +178,235 @@ elif app_mode == "Cell Population Analysis":
             patients_data = db.get_cohort_patients(selected_cohort)
             patients_df = pd.DataFrame(patients_data)
             
-            # Debug output
-            st.write(f"Debug: Found {len(patients_data)} patients for cohort {selected_cohort}")
-            
+            # Find a patient that has specimens
             if not patients_df.empty:
-                first_patient = patients_df["patient_id"].iloc[0]
-                specimens_data = db.get_patient_specimens(first_patient)
-                specimens_df = pd.DataFrame(specimens_data)
+                # Use SQLAlchemy ORM style instead of raw SQL
+                patient_with_specimens = (
+                    db.session.query(
+                        Patient.patient_id,
+                        func.count(Specimen.specimen_id).label("specimen_count")
+                    )
+                    .join(Specimen, Patient.patient_id == Specimen.patient_id)
+                    .filter(Patient.cohort_id == selected_cohort)
+                    .group_by(Patient.patient_id)
+                    .having(func.count(Specimen.specimen_id) > 0)
+                    .order_by(desc("specimen_count"))
+                    .first()
+                )
+                
+                if patient_with_specimens:
+                    first_patient = patient_with_specimens[0]
+                    st.info(f"Using patient {first_patient} with {patient_with_specimens[1]} specimens for analysis")
+                else:
+                    first_patient = patients_df["patient_id"].iloc[0]
+                    st.warning(f"No patients with specimens found for cohort {selected_cohort}")
                 
                 # Debug output
-                st.write(f"Debug: Found {len(specimens_data)} specimens for patient {first_patient}")
+                st.write(f"Debug: Found {len(patients_data)} patients for cohort {selected_cohort}")
                 
-                if not specimens_df.empty:
-                    first_specimen = specimens_df["specimen_id"].iloc[0]
-                    cell_pops_data = db.get_specimen_cell_populations(first_specimen)
-                    cell_pops_df = pd.DataFrame(cell_pops_data)
+                if not patients_df.empty:
+                    first_patient = patients_df["patient_id"].iloc[0]
+                    specimens_data = db.get_patient_specimens(first_patient)
+                    specimens_df = pd.DataFrame(specimens_data)
                     
                     # Debug output
-                    st.write(f"Debug: Found {len(cell_pops_data)} cell populations for specimen {first_specimen}")
+                    st.write(f"Debug: Found {len(specimens_data)} specimens for patient {first_patient}")
                     
-                    # Get unique cell types
-                    cell_types = cell_pops_df["cell_type"].unique().tolist() if not cell_pops_df.empty else []
-                    
-                    if cell_types:
-                        # Select a cell type to analyze
-                        selected_cell_type = st.selectbox("Select a cell type", cell_types)
+                    if not specimens_df.empty:
+                        first_specimen = specimens_df["specimen_id"].iloc[0]
+                        cell_pops_data = db.get_specimen_cell_populations(first_specimen)
+                        cell_pops_df = pd.DataFrame(cell_pops_data)
                         
-                        if selected_cell_type:
-                            # Get cell type data for responders vs non-responders
-                            cell_data = utils.get_cell_type_comparison(db.session, selected_cohort, selected_cell_type)
+                        # Debug output
+                        st.write(f"Debug: Found {len(cell_pops_data)} cell populations for specimen {first_specimen}")
+                        
+                        # Get unique cell types
+                        cell_types = cell_pops_df["cell_type"].unique().tolist() if not cell_pops_df.empty else []
+                        
+                        if cell_types:
+                            # Select a cell type to analyze
+                            selected_cell_type = st.selectbox("Select a cell type", cell_types)
                             
-                            # Debug output
-                            st.write(f"Debug: Found {len(cell_data)} records for cell type comparison")
-                            
-                            if not cell_data.empty:
-                                st.write(f"### {selected_cell_type} Analysis")
+                            if selected_cell_type:
+                                # Get cell type data for responders vs non-responders
+                                cell_data = utils.get_cell_type_comparison(db.session, selected_cohort, selected_cell_type)
                                 
-                                # Visualize average percentage by timepoint and responder status
-                                fig = utils.generate_timepoint_chart(cell_data, selected_cell_type)
-                                st.pyplot(fig)
+                                # Debug output
+                                st.write(f"Debug: Found {len(cell_data)} records for cell type comparison")
                                 
-                                # Additional analysis - show raw data
-                                st.write("### Raw Data")
-                                st.dataframe(cell_data)
-                                
-                                # Bar chart comparing responders vs non-responders
-                                st.write("### Responders vs Non-Responders Comparison")
-                                
-                                # Aggregate data by responder status
-                                responder_summary = cell_data.groupby("responder_status")["avg_percentage"].mean().reset_index()
-                                
-                                fig, ax = plt.subplots(figsize=(8, 6))
-                                sns.barplot(x="responder_status", y="avg_percentage", data=responder_summary, ax=ax)
-                                plt.title(f"Average {selected_cell_type} Percentage by Response")
-                                plt.xlabel("Response Status")
-                                plt.ylabel("Average Percentage (%)")
-                                plt.tight_layout()
-                                
-                                st.pyplot(fig)
-                            else:
-                                st.warning("No data available for the selected cell type and cohort combination.")
+                                if not cell_data.empty:
+                                    st.write(f"### {selected_cell_type} Analysis")
+                                    
+                                    # Visualize average percentage by timepoint and responder status
+                                    fig = utils.generate_timepoint_chart(cell_data, selected_cell_type)
+                                    st.pyplot(fig)
+                                    
+                                    # Additional analysis - show raw data
+                                    st.write("### Raw Data")
+                                    st.dataframe(cell_data)
+                                    
+                                    # Bar chart comparing responders vs non-responders
+                                    st.write("### Responders vs Non-Responders Comparison")
+                                    
+                                    # Aggregate data by responder status
+                                    responder_summary = cell_data.groupby("responder_status")["avg_percentage"].mean().reset_index()
+                                    
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    sns.barplot(x="responder_status", y="avg_percentage", data=responder_summary, ax=ax)
+                                    plt.title(f"Average {selected_cell_type} Percentage by Response")
+                                    plt.xlabel("Response Status")
+                                    plt.ylabel("Average Percentage (%)")
+                                    plt.tight_layout()
+                                    
+                                    st.pyplot(fig)
+                                else:
+                                    st.warning("No data available for the selected cell type and cohort combination.")
+                        else:
+                            st.warning("No cell types found in specimen data.")
                     else:
-                        st.warning("No cell types found in specimen data.")
+                        st.warning(f"No specimens found for patient {first_patient}.")
                 else:
-                    st.warning(f"No specimens found for patient {first_patient}.")
-            else:
-                st.warning(f"No patients found for cohort {selected_cohort}.")
+                    st.warning(f"No patients found for cohort {selected_cohort}.")
     else:
         st.warning("No cohorts found in the database. Please check database initialization.")
+
+# Individual Cell Analysis
+elif app_mode == "Individual Cell Analysis":
+    st.header("Individual Cell Analysis")
+    
+    # Select a cohort
+    cohorts_data = db.get_cohorts()
+    cohorts_df = pd.DataFrame(cohorts_data)
+    
+    if not cohorts_df.empty:
+        selected_cohort = st.selectbox(
+            "Select a cohort",
+            cohorts_df["cohort_id"].tolist(),
+            format_func=lambda x: f"{x} - {cohorts_df[cohorts_df['cohort_id'] == x]['indication'].iloc[0]}"
+        )
+        
+        if selected_cohort:
+            # Get patients for this cohort
+            patients_data = db.get_cohort_patients(selected_cohort)
+            patients_df = pd.DataFrame(patients_data)
+            
+            if not patients_df.empty:
+                # Select a patient
+                selected_patient = st.selectbox(
+                    "Select a patient",
+                    patients_df["patient_id"].tolist(),
+                    format_func=lambda x: f"Patient {x} ({'Responder' if patients_df[patients_df['patient_id'] == x]['responder'].iloc[0] else 'Non-Responder'})"
+                )
+                
+                if selected_patient:
+                    # Get specimens for this patient
+                    specimens_data = db.get_patient_specimens(selected_patient)
+                    specimens_df = pd.DataFrame(specimens_data)
+                    
+                    if not specimens_df.empty:
+                        # Select a specimen
+                        selected_specimen = st.selectbox(
+                            "Select a specimen",
+                            specimens_df["specimen_id"].tolist(),
+                            format_func=lambda x: f"Specimen {x} - {specimens_df[specimens_df['specimen_id'] == x]['timepoint'].iloc[0]} ({specimens_df[specimens_df['specimen_id'] == x]['specimen_type'].iloc[0]})"
+                        )
+                        
+                        if selected_specimen:
+                            # Get cell populations for this specimen
+                            cell_pops_data = db.get_specimen_cell_populations(selected_specimen)
+                            cell_pops_df = pd.DataFrame(cell_pops_data)
+                            
+                            if not cell_pops_df.empty:
+                                # Select a cell population
+                                selected_population = st.selectbox(
+                                    "Select a cell population",
+                                    cell_pops_df["id"].tolist(),
+                                    format_func=lambda x: f"{cell_pops_df[cell_pops_df['id'] == x]['cell_type'].iloc[0]} ({cell_pops_df[cell_pops_df['id'] == x]['cell_count'].iloc[0]} cells, {cell_pops_df[cell_pops_df['id'] == x]['percentage'].iloc[0]:.2f}%)"
+                                )
+                                
+                                if selected_population:
+                                    # Get cells for this population
+                                    cells_data = db.get_population_cells(selected_population)
+                                    
+                                    if cells_data:
+                                        st.write(f"### Cells in {cell_pops_df[cell_pops_df['id'] == selected_population]['cell_type'].iloc[0]} Population")
+                                        
+                                        cells_df = pd.DataFrame(cells_data)
+                                        
+                                        # Display cells table
+                                        st.dataframe(cells_df)
+                                        
+                                        # Allow selection of a specific cell for detailed analysis
+                                        if not cells_df.empty:
+                                            selected_cell = st.selectbox(
+                                                "Select a cell to view marker details",
+                                                cells_df["cell_id"].tolist(),
+                                                format_func=lambda x: f"Cell {x}"
+                                            )
+                                            
+                                            if selected_cell:
+                                                # Get cell detail with markers
+                                                cell_detail = db.get_cell_details(selected_cell)
+                                                
+                                                if cell_detail:
+                                                    st.write(f"### Cell {selected_cell} Details")
+                                                    
+                                                    # Display cell properties
+                                                    col1, col2 = st.columns(2)
+                                                    col1.metric("Cell ID", cell_detail["cell_id"])
+                                                    col2.metric("Cell Type", cell_detail["cell_type"])
+                                                    
+                                                    # Display marker data
+                                                    if cell_detail["markers"]:
+                                                        st.write("### Marker Expression")
+                                                        
+                                                        markers_df = pd.DataFrame(cell_detail["markers"])
+                                                        
+                                                        # Display markers table
+                                                        st.dataframe(markers_df)
+                                                        
+                                                        # Create bar chart of marker intensities
+                                                        fig, ax = plt.subplots(figsize=(12, 6))
+                                                        bars = ax.bar(markers_df["marker_name"], markers_df["intensity"])
+                                                        
+                                                        # Color bars based on positive/negative status
+                                                        for i, bar in enumerate(bars):
+                                                            if markers_df.iloc[i]["positive"]:
+                                                                bar.set_color("green")
+                                                            else:
+                                                                bar.set_color("red")
+                                                                
+                                                        plt.title("Marker Expression Intensity")
+                                                        plt.xlabel("Marker")
+                                                        plt.ylabel("Fluorescence Intensity")
+                                                        plt.xticks(rotation=45, ha="right")
+                                                        plt.tight_layout()
+                                                        
+                                                        # Add legend
+                                                        from matplotlib.patches import Patch
+                                                        legend_elements = [
+                                                            Patch(facecolor="green", label="Positive"),
+                                                            Patch(facecolor="red", label="Negative")
+                                                        ]
+                                                        ax.legend(handles=legend_elements)
+                                                        
+                                                        st.pyplot(fig)
+                                                    else:
+                                                        st.warning("No marker data available for this cell.")
+                                                else:
+                                                    st.error("Could not retrieve cell details.")
+                                        else:
+                                            st.warning("No cells found in this population.")
+                                    else:
+                                        st.warning("No cells found for this population.")
+                            else:
+                                st.warning("No cell populations found for this specimen.")
+                    else:
+                        st.warning("No specimens found for this patient.")
+            else:
+                st.warning("No patients found for this cohort.")
+    else:
+        st.warning("No cohorts found in the database.")
 
 # Responder Analysis
 elif app_mode == "Responder Analysis":

@@ -54,6 +54,7 @@ class Specimen(Base):
     # Relationships
     patient = relationship("Patient", back_populates="specimens")
     cell_populations = relationship("CellPopulation", back_populates="specimen", cascade="all, delete-orphan")
+    cells = relationship("Cell", back_populates="specimen", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Specimen(specimen_id={self.specimen_id}, timepoint='{self.timepoint}', type='{self.specimen_type}')>"
@@ -71,9 +72,44 @@ class CellPopulation(Base):
     
     # Relationships
     specimen = relationship("Specimen", back_populates="cell_populations")
+    cells = relationship("Cell", back_populates="population", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<CellPopulation(id={self.id}, cell_type='{self.cell_type}', percentage={self.percentage})>"
+
+
+class Cell(Base):
+    """Model representing an individual cell with its flow cytometry measurements."""
+    __tablename__ = 'cells'
+    
+    cell_id = Column(Integer, primary_key=True)
+    specimen_id = Column(Integer, ForeignKey('specimens.specimen_id'), nullable=False)
+    population_id = Column(Integer, ForeignKey('cell_populations.id'), nullable=False)
+    
+    # Relationships
+    specimen = relationship("Specimen", back_populates="cells")
+    population = relationship("CellPopulation", back_populates="cells")
+    markers = relationship("CellMarker", back_populates="cell", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<Cell(cell_id={self.cell_id})>"
+
+
+class CellMarker(Base):
+    """Model representing marker expression measurements for individual cells."""
+    __tablename__ = 'cell_markers'
+    
+    id = Column(Integer, primary_key=True)
+    cell_id = Column(Integer, ForeignKey('cells.cell_id'), nullable=False)
+    marker_name = Column(String, nullable=False)
+    intensity = Column(Float, nullable=False)  # Fluorescence intensity
+    positive = Column(Boolean, nullable=False)  # Whether the cell is positive for this marker
+    
+    # Relationships
+    cell = relationship("Cell", back_populates="markers")
+    
+    def __repr__(self):
+        return f"<CellMarker(cell_id={self.cell_id}, marker='{self.marker_name}', intensity={self.intensity})>"
 
 
 def init_db(db_url="sqlite:///immune_atlas.db"):
