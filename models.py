@@ -3,6 +3,7 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
+import os
 
 Base = declarative_base()
 
@@ -77,9 +78,35 @@ class CellPopulation(Base):
 
 def init_db(db_url="sqlite:///immune_atlas.db"):
     """Initialize the database and create tables."""
-    engine = create_engine(db_url)
-    Base.metadata.create_all(engine)
-    return engine
+    try:
+        print(f"Creating engine with URL: {db_url}")
+        engine = create_engine(db_url)
+        Base.metadata.create_all(engine)
+        print("Tables created successfully")
+        return engine
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+        # Try with a different location if there's a permission error
+        if "permission" in str(e).lower() and "sqlite://" in db_url:
+            try:
+                # Try in user's home directory
+                home_dir = os.path.expanduser("~")
+                alt_path = os.path.join(home_dir, "immune_atlas.db")
+                alt_url = f"sqlite:///{alt_path}"
+                print(f"Trying alternative path: {alt_url}")
+                engine = create_engine(alt_url)
+                Base.metadata.create_all(engine)
+                print(f"Tables created successfully at alternative location: {alt_path}")
+                return engine
+            except Exception as alt_error:
+                print(f"Error with alternative path: {str(alt_error)}")
+                # Fall back to in-memory SQLite as a last resort
+                print("Falling back to in-memory SQLite database")
+                engine = create_engine("sqlite:///:memory:")
+                Base.metadata.create_all(engine)
+                return engine
+        else:
+            raise
 
 
 def get_session(engine):

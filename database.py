@@ -1,26 +1,65 @@
 # database.py
 
 import numpy as np
+import pandas as pd
+import os
+import tempfile
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from models import init_db, get_session, Cohort, Patient, Specimen, CellPopulation
 
 class DatabaseManager:
     """Manager for database operations using SQLAlchemy models."""
     
-    def __init__(self, db_url="sqlite:///immune_atlas.db"):
+    def __init__(self, db_url=None):
         """Initialize database connection and ensure tables exist."""
+        if db_url is None:
+            # Try to use a temp directory for Streamlit Cloud
+            try:
+                # First, try to use a directory that we know should be writable in most environments
+                temp_dir = tempfile.gettempdir()
+                db_path = os.path.join(temp_dir, "immune_atlas.db")
+                print(f"Using database path: {db_path}")
+                db_url = f"sqlite:///{db_path}"
+            except Exception as e:
+                # Fallback to current directory
+                print(f"Error using temp directory: {str(e)}")
+                db_url = "sqlite:///immune_atlas.db"
+        
         self.engine = init_db(db_url)
         self.session = get_session(self.engine)
+        print(f"Database initialized with connection: {db_url}")
     
     def load_sample_data(self):
         """Load sample data if the database is empty."""
         # Check if cohorts table is empty
-        if self.session.query(Cohort).count() == 0:
-            self._load_cohorts()
-            self._generate_sample_patients()
-            self._generate_sample_specimens()
-            self._generate_sample_cell_populations()
-            print("Sample data loaded successfully!")
+        count_query = text("SELECT COUNT(*) FROM cohorts")
+        try:
+            cohort_count = self.session.execute(count_query).scalar()
+            print(f"Found {cohort_count} existing cohorts")
+            
+            if cohort_count == 0:
+                print("Loading sample data...")
+                self._load_cohorts()
+                self._generate_sample_patients()
+                self._generate_sample_specimens()
+                self._generate_sample_cell_populations()
+                print("Sample data loaded successfully!")
+        except Exception as e:
+            print(f"Error checking cohorts: {str(e)}")
+            # Try creating tables if they don't exist yet
+            self.engine = init_db(str(self.engine.url))
+            self.session = get_session(self.engine)
+            
+            # Try again after ensuring tables exist
+            cohort_count = self.session.execute(count_query).scalar()
+            if cohort_count == 0:
+                print("Loading sample data after re-initializing tables...")
+                self._load_cohorts()
+                self._generate_sample_patients()
+                self._generate_sample_specimens()
+                self._generate_sample_cell_populations()
+                print("Sample data loaded successfully!")
     
     def _load_cohorts(self):
         """Load sample cohort data."""
@@ -39,6 +78,7 @@ class DatabaseManager:
         
         self.session.add_all(cohorts_data)
         self.session.commit()
+        print(f"Added {len(cohorts_data)} cohorts")
     
     def _generate_sample_patients(self):
         """Generate sample patient data with responder status."""
@@ -63,6 +103,7 @@ class DatabaseManager:
         
         self.session.add_all(patients)
         self.session.commit()
+        print(f"Added {len(patients)} patients")
     
     def _generate_sample_specimens(self):
         """Generate sample specimen data with timepoints and specimen types."""
@@ -97,6 +138,7 @@ class DatabaseManager:
         
         self.session.add_all(specimens)
         self.session.commit()
+        print(f"Added {len(specimens)} specimens")
     
     def _generate_sample_cell_populations(self):
         """Generate sample cell population data."""
@@ -115,17 +157,21 @@ class DatabaseManager:
         ]
         
         cell_id = 1
-        batch_size = 1000
-        cell_populations_batch = []
+        batch_size = 500  # Reduced batch size for better memory management
+        total_added = 0
         
-        for specimen in specimens:
+        print(f"Generating cell populations for {len(specimens)} specimens...")
+        
+        for i, specimen in enumerate(specimens):
             # Generate counts for each cell type
             total_cells = np.random.randint(100000, 1000000)
             remaining_percentage = 100.0
             
-            for i, cell_type in enumerate(cell_types):
+            cell_populations_batch = []
+            
+            for j, cell_type in enumerate(cell_types):
                 # Last cell type gets the remaining percentage
-                if i == len(cell_types) - 1:
+                if j == len(cell_types) - 1:
                     percentage = remaining_percentage
                 else:
                     # Generate random percentage for this cell type
@@ -145,77 +191,120 @@ class DatabaseManager:
                     )
                 )
                 cell_id += 1
-                
-                # Add in batches to avoid memory issues
-                if len(cell_populations_batch) >= batch_size:
-                    self.session.add_all(cell_populations_batch)
-                    self.session.commit()
-                    cell_populations_batch = []
-        
-        # Add any remaining cell populations
-        if cell_populations_batch:
+            
+            # Add in batches to avoid memory issues
             self.session.add_all(cell_populations_batch)
-            self.session.commit()
+            total_added += len(cell_populations_batch)
+            
+            # Commit every batch_size specimens to avoid memory issues
+            if (i + 1) % batch_size == 0 or i == len(specimens) - 1:
+                print(f"Committing batch... ({i+1}/{len(specimens)} specimens processed)")
+                self.session.commit()
+        
+        print(f"Added {total_added} cell populations")
     
     def get_cohorts(self):
         """Retrieve all cohorts as a DataFrame."""
-        cohorts = self.session.query(Cohort).all()
-        return [
-            {
-                'cohort_id': c.cohort_id,
-                'indication': c.indication,
-                'specimens_count': c.specimens_count,
-                'patients_count': c.patients_count,
-                'analyzed_specimens': c.analyzed_specimens,
-                'cells_phenotyped': c.cells_phenotyped
-            } 
-            for c in cohorts
-        ]
+        try:
+            cohorts = self.session.query(Cohort).all()
+            return [
+                {
+                    'cohort_id': c.cohort_id,
+                    'indication': c.indication,
+                    'specimens_count': c.specimens_count,
+                    'patients_count': c.patients_count,
+                    'analyzed_specimens': c.analyzed_specimens,
+                    'cells_phenotyped': c.cells_phenotyped
+                } 
+                for c in cohorts
+            ]
+        except Exception as e:
+            print(f"Error getting cohorts: {str(e)}")
+            return []
     
     def get_cohort_patients(self, cohort_id):
         """Retrieve patients for a specific cohort."""
-        patients = self.session.query(Patient).filter(Patient.cohort_id == cohort_id).all()
-        return [
-            {
-                'patient_id': p.patient_id,
-                'cohort_id': p.cohort_id,
-                'responder': p.responder
-            }
-            for p in patients
-        ]
+        try:
+            patients = self.session.query(Patient).filter(Patient.cohort_id == cohort_id).all()
+            return [
+                {
+                    'patient_id': p.patient_id,
+                    'cohort_id': p.cohort_id,
+                    'responder': p.responder
+                }
+                for p in patients
+            ]
+        except Exception as e:
+            print(f"Error getting patients for cohort {cohort_id}: {str(e)}")
+            return []
     
     def get_patient_specimens(self, patient_id):
         """Retrieve specimens for a specific patient."""
-        specimens = self.session.query(Specimen).filter(Specimen.patient_id == patient_id).all()
-        return [
-            {
-                'specimen_id': s.specimen_id,
-                'patient_id': s.patient_id,
-                'timepoint': s.timepoint,
-                'specimen_type': s.specimen_type,
-                'drug_class': s.drug_class
-            }
-            for s in specimens
-        ]
+        try:
+            specimens = self.session.query(Specimen).filter(Specimen.patient_id == patient_id).all()
+            return [
+                {
+                    'specimen_id': s.specimen_id,
+                    'patient_id': s.patient_id,
+                    'timepoint': s.timepoint,
+                    'specimen_type': s.specimen_type,
+                    'drug_class': s.drug_class
+                }
+                for s in specimens
+            ]
+        except Exception as e:
+            print(f"Error getting specimens for patient {patient_id}: {str(e)}")
+            return []
     
     def get_specimen_cell_populations(self, specimen_id):
         """Retrieve cell populations for a specific specimen."""
-        cell_pops = self.session.query(CellPopulation).filter(
-            CellPopulation.specimen_id == specimen_id
-        ).all()
-        
-        return [
-            {
-                'id': cp.id,
-                'specimen_id': cp.specimen_id,
-                'cell_type': cp.cell_type,
-                'cell_count': cp.cell_count,
-                'percentage': cp.percentage
-            }
-            for cp in cell_pops
-        ]
+        try:
+            cell_pops = self.session.query(CellPopulation).filter(
+                CellPopulation.specimen_id == specimen_id
+            ).all()
+            
+            return [
+                {
+                    'id': cp.id,
+                    'specimen_id': cp.specimen_id,
+                    'cell_type': cp.cell_type,
+                    'cell_count': cp.cell_count,
+                    'percentage': cp.percentage
+                }
+                for cp in cell_pops
+            ]
+        except Exception as e:
+            print(f"Error getting cell populations for specimen {specimen_id}: {str(e)}")
+            return []
     
     def close(self):
         """Close the database session."""
         if self.session:
             self.session.close()
+            print("Database session closed")
+
+
+if __name__ == "__main__":
+    print("Initializing database...")
+    db = DatabaseManager()
+    db.load_sample_data()
+    
+    # Verify the data
+    try:
+        from sqlalchemy import text
+        with db.engine.connect() as conn:
+            cohort_count = conn.execute(text("SELECT COUNT(*) FROM cohorts")).scalar()
+            patient_count = conn.execute(text("SELECT COUNT(*) FROM patients")).scalar()
+            specimen_count = conn.execute(text("SELECT COUNT(*) FROM specimens")).scalar()
+            cell_count = conn.execute(text("SELECT COUNT(*) FROM cell_populations")).scalar()
+        
+        print("\nDatabase Summary:")
+        print(f"- Cohorts: {cohort_count}")
+        print(f"- Patients: {patient_count}")
+        print(f"- Specimens: {specimen_count}")
+        print(f"- Cell populations: {cell_count}")
+    except Exception as e:
+        print(f"Error verifying data: {str(e)}")
+    
+    print("\nDatabase initialized with sample data!")
+    db.close()
