@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Union, Tuple, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, desc, and_, Float, distinct
 
-from database.models import Cohort, Patient, Specimen, CellPopulation
+from models import Cohort, Patient, Specimen, CellPopulation
 
 def get_cell_type_comparison(session: Session, cohort_id: int, cell_type: str, 
                             timepoints: Optional[List[str]] = None) -> pd.DataFrame:
@@ -387,19 +387,3 @@ def calculate_response_prediction_metrics(session: Session, cohort_id: int,
         return pd.DataFrame(results)
     else:
         return pd.DataFrame()
-
-def get_patient_specimens(patient_id):
-    specimens = session.query(Specimen).filter(Specimen.patient_id == patient_id).all()
-    print(f"Query debug: SELECT * FROM specimens WHERE patient_id = {patient_id}")
-    print(f"Got {len(specimens)} results")
-    
-    # Check if any specimens exist at all
-    total_specimens = session.query(Specimen).count()
-    print(f"Total specimens in database: {total_specimens}")
-    
-    # Check some sample patient_ids that have specimens
-    if total_specimens > 0:
-        sample_specimens = session.query(Specimen).limit(5).all()
-        print("Sample specimens patient_ids:", [s.patient_id for s in sample_specimens])
-    
-    return specimens

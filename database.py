@@ -241,7 +241,23 @@ class DatabaseManager:
     def get_patient_specimens(self, patient_id):
         """Retrieve specimens for a specific patient."""
         try:
+            print(f"DEBUG: Querying specimens for patient_id={patient_id}")
             specimens = self.session.query(Specimen).filter(Specimen.patient_id == patient_id).all()
+            print(f"DEBUG: Found {len(specimens)} specimens for patient {patient_id}")
+            
+            # Additional debugging
+            total_specimens = self.session.query(Specimen).count()
+            print(f"DEBUG: Total specimens in database: {total_specimens}")
+            
+            # Check some random patient IDs with specimens
+            if total_specimens > 0:
+                sample_query = self.session.query(
+                    Specimen.patient_id, 
+                    text("COUNT(*) as specimen_count")
+                ).group_by(Specimen.patient_id).limit(5)
+                sample_patients = sample_query.all()
+                print(f"DEBUG: Sample patients with specimens: {sample_patients}")
+            
             return [
                 {
                     'specimen_id': s.specimen_id,
@@ -254,6 +270,8 @@ class DatabaseManager:
             ]
         except Exception as e:
             print(f"Error getting specimens for patient {patient_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def get_specimen_cell_populations(self, specimen_id):
